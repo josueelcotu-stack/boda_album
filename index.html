@@ -33,61 +33,136 @@
     </div>
   </main>
 
-  <script type="text/javascript">
-    // --- REEMPLAZA CON TUS DATOS DE CLOUDINARY ---
-    const cloudName = "cb6z5cjj"; 
-    const uploadPreset = "boda_preset"; 
 
-    // Configurar el widget de subida
-    const myWidget = cloudinary.createUploadWidget({
-        cloudName: cloudName, 
-        uploadPreset: uploadPreset,
-        sources: ['local', 'camera'], // Permitir archivos de la galería o tomar foto directa
-        multiple: true,
-        maxFiles: 10,
-        resourceType: 'auto', // Permite fotos y videos
-        styles: {
-          palette: {
-            window: "#FFFFFF",
-            sourceBg: "#F4F1EA",
-            windowBorder: "#906D53",
-            tabIcon: "#78350F",
-            inactiveTabIcon: "#555555",
-            menuBg: "#FFFFFF",
-            link: "#B45309",
-            action: "#78350F",
-            inProgress: "#D97706",
-            complete: "#15803D",
-            error: "#DC2626",
-            textDark: "#000000",
-            textLight: "#FFFFFF"
-          }
-        }
-      }, (error, result) => { 
-        if (!error && result && result.event === "success") { 
-          // Al subir con éxito, renderizar el elemento en la galería inmediatamente
-          addImageToGallery(result.info.secure_url, result.info.resource_type);
-        }
-      }
-    );
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    document.getElementById("upload_widget").addEventListener("click", function(){
-        myWidget.open();
-      }, false);
+<script>
+  // CLOUDINARY
+  const cloudName = "cb6z5cjj";
+  const uploadPreset = "boda_preset";
 
-    function addImageToGallery(url, type) {
-      const gallery = document.getElementById('gallery');
-      const container = document.createElement('div');
-      container.className = "relative rounded-xl overflow-hidden shadow bg-gray-200 aspect-square";
+  // SUPABASE: reemplaza estos dos valores
+  const SUPABASE_URL = "TU_PROJECT_URL";
+  const SUPABASE_KEY = "TU_PUBLISHABLE_KEY";
 
-      if (type === 'video') {
-        container.innerHTML = `<video src="${url}" class="w-full h-full object-cover" controls></video>`;
-      } else {
-        container.innerHTML = `<img src="${url}" class="w-full h-full object-cover loading="lazy" />`;
-      }
-      
-      gallery.prepend(container);
+  const supabaseClient = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY
+  );
+
+  const gallery = document.getElementById("gallery");
+
+  // Evitar mostrar dos veces el mismo registro
+  const displayedPhotos = new Set();
+
+  // Mostrar fotografías y vídeos
+  function addImageToGallery(photo) {
+    if (displayedPhotos.has(photo.id)) return;
+
+    displayedPhotos.add(photo.id);
+
+    const container = document.createElement("div");
+    container.className =
+      "relative rounded-xl overflow-hidden shadow bg-gray-200 aspect-square";
+
+    if (photo.tipo === "video") {
+      const video = document.createElement("video");
+      video.src = photo.url;
+      video.className = "w-full h-full object-cover";
+      video.controls = true;
+      container.appendChild(video);
+    } else {
+      const img = document.createElement("img");
+      img.src = photo.url;
+      img.alt = "Fotografía de nuestra boda";
+      img.loading = "lazy";
+      img.className = "w-full h-full object-cover";
+      container.appendChild(img);
     }
-  </script>
+
+    gallery.prepend(container);
+  }
+
+  // Cargar las fotografías que ya existen
+  async function loadGallery() {
+    const { data, error } = await supabaseClient
+      .from("fotos")
+      .select("*")
+      .order("fecha", { ascending: false });
+
+    if (error) {
+      console.error("Error cargando álbum:", error);
+      return;
+    }
+
+    data.forEach(addImageToGallery);
+  }
+
+  // Escuchar nuevas fotografías de otros dispositivos
+  supabaseClient
+    .channel("album-boda")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "fotos"
+      },
+      (payload) => {
+        addImageToGallery(payload.new);
+      }
+    )
+    .subscribe();
+
+  // Configurar widget de Cloudinary
+  const myWidget = cloudinary.createUploadWidget({
+    cloudName: cloudName,
+    uploadPreset: uploadPreset,
+    sources: ["local", "camera"],
+    multiple: true,
+    maxFiles: 10,
+    resourceType: "auto"
+  }, async (error, result) => {
+
+    if (error) {
+      console.error("Error Cloudinary:", error);
+      return;
+    }
+
+    if (result && result.event === "success") {
+
+      // Registrar la URL en Supabase
+      const { data, error } = await supabaseClient
+        .from("fotos")
+        .insert({
+          url: result.info.secure_url,
+          tipo: result.info.resource_type
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error guardando registro:", error);
+        alert("La foto se subió, pero no se pudo registrar en el álbum.");
+        return;
+      }
+
+      // Mostrar inmediatamente en el dispositivo que subió
+      addImageToGallery(data);
+    }
+  });
+
+  // Abrir widget
+  document
+    .getElementById("upload_widget")
+    .addEventListener("click", () => {
+      myWidget.open();
+    });
+
+  // Cargar álbum al entrar
+  loadGallery();
+
+</script>
+
 </body>
 </html>
